@@ -40,10 +40,10 @@ func (hdb *HostDB) queueScan(entry modules.HostDBEntry) {
 
 	hdb.scanWait = true
 	scanPool := make(chan modules.HostDBEntry)
+	threadsDone := make(chan struct{})
+	threadsDoneClosed := false
 
 	go func() {
-		defer close(scanPool)
-
 		// Nobody is emptying the scan list, volunteer.
 		if hdb.tg.Add() != nil {
 			// Hostdb is shutting down, don't spin up another thread.  It is
@@ -52,22 +52,12 @@ func (hdb *HostDB) queueScan(entry modules.HostDBEntry) {
 			return
 		}
 		defer hdb.tg.Done()
-
-		// There is a chance that goroutines that belong to the previous
-		// scanPool are still scanning hosts. We use newPool to be able to
-		// circumvent the maximum thread check once to make sure that our new
-		// scanPool has at least one scanning thread itself. This prevents a
-		// deadlock when we insert the entry into the new scanPool.
-		newPool := true
-
 		for {
 			hdb.mu.Lock()
 			if len(hdb.scanList) == 0 {
-				// Scan list is empty, can exit. Let the world know that nobody
-				// is emptying the scan list anymore.
-				hdb.scanWait = false
+				// Scan list is empty, can break out of loop.
 				hdb.mu.Unlock()
-				return
+				break
 			}
 			// Get the next host, shrink the scan list.
 			entry := hdb.scanList[0]
@@ -83,19 +73,23 @@ func (hdb *HostDB) queueScan(entry modules.HostDBEntry) {
 
 			// Create new worker thread. newPool allows us to ignore
 			// maxScanningThreads once as explained in the comment above.
-			if newPool || hdb.scanningThreads < maxScanningThreads {
-				newPool = false
-				hdb.scanningThreads++
+			if hdb.scanningThreads < maxScanningThreads {
 				err := hdb.tg.Add()
 				if err != nil {
 					// Hostdb is shutting down
-					return
+					hdb.mu.Unlock()
+					break
 				}
 				// Spin up scanning thread
+				hdb.scanningThreads++
 				go func() {
 					hdb.threadedProbeHosts(scanPool)
 					hdb.mu.Lock()
 					hdb.scanningThreads--
+					if !threadsDoneClosed && hdb.scanningThreads < maxScanningThreads {
+						close(threadsDone)
+						threadsDoneClosed = true
+					}
 					hdb.mu.Unlock()
 					hdb.tg.Done()
 				}()
@@ -109,9 +103,19 @@ func (hdb *HostDB) queueScan(entry modules.HostDBEntry) {
 				// iterate again
 			case <-hdb.tg.StopChan():
 				// quit
-				return
+				break
 			}
 		}
+		// When we exit the goroutine we need to wait for spawned scanning
+		// routines to avoid deadlocks.
+		close(scanPool)
+		select {
+		case <-threadsDone:
+		}
+		// Let the world now that nobody is emptying the scanList anymore.
+		hdb.mu.Lock()
+		hdb.scanWait = false
+		hdb.mu.Unlock()
 	}()
 }
 
@@ -304,7 +308,6 @@ func (hdb *HostDB) threadedProbeHosts(scanPool <-chan modules.HostDBEntry) {
 				return
 			}
 		}
-
 		// There appears to be internet connectivity, continue with the
 		// scan.
 		hdb.managedScanHost(hostEntry)
