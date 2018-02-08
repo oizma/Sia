@@ -53,6 +53,13 @@ func (hdb *HostDB) queueScan(entry modules.HostDBEntry) {
 		}
 		defer hdb.tg.Done()
 
+		// There is a chance that goroutines that belong to the previous
+		// scanPool are still scanning hosts. We use newPool to be able to
+		// circumvent the maximum thread check once to make sure that our new
+		// scanPool has at least one scanning thread itself. This prevents a
+		// deadlock when we insert the entry into the new scanPool.
+		newPool := true
+
 		for {
 			hdb.mu.Lock()
 			if len(hdb.scanList) == 0 {
@@ -74,14 +81,23 @@ func (hdb *HostDB) queueScan(entry modules.HostDBEntry) {
 				entry = recentEntry
 			}
 
-			// Create new worker thread
-			if hdb.scanningThreads < maxScanningThreads {
+			// Create new worker thread. newPool allows us to ignore
+			// maxScanningThreads once as explained in the comment above.
+			if newPool || hdb.scanningThreads < maxScanningThreads {
+				newPool = false
 				hdb.scanningThreads++
+				err := hdb.tg.Add()
+				if err != nil {
+					// Hostdb is shutting down
+					return
+				}
+				// Spin up scanning thread
 				go func() {
 					hdb.threadedProbeHosts(scanPool)
 					hdb.mu.Lock()
 					hdb.scanningThreads--
 					hdb.mu.Unlock()
+					hdb.tg.Done()
 				}()
 			}
 			hdb.mu.Unlock()
@@ -272,11 +288,6 @@ func (hdb *HostDB) managedScanHost(entry modules.HostDBEntry) {
 
 // threadedProbeHosts pulls hosts from the thread pool and runs a scan on them.
 func (hdb *HostDB) threadedProbeHosts(scanPool <-chan modules.HostDBEntry) {
-	err := hdb.tg.Add()
-	if err != nil {
-		return
-	}
-	defer hdb.tg.Done()
 	for hostEntry := range scanPool {
 		// Block until hostdb has internet connectivity.
 		for {
