@@ -39,10 +39,6 @@ func (hdb *HostDB) queueScan(entry modules.HostDBEntry) {
 	}
 
 	hdb.scanWait = true
-	scanPool := make(chan modules.HostDBEntry)
-	threadsDone := make(chan struct{})
-	threadsDoneClosed := false
-
 	go func() {
 		// Nobody is emptying the scan list, volunteer.
 		if hdb.tg.Add() != nil {
@@ -52,10 +48,13 @@ func (hdb *HostDB) queueScan(entry modules.HostDBEntry) {
 			return
 		}
 		defer hdb.tg.Done()
+
+		scanPool := make(chan modules.HostDBEntry)
+		defer close(scanPool)
 		for {
 			hdb.mu.Lock()
 			if len(hdb.scanList) == 0 {
-				// Scan list is empty, can break out of loop.
+				// No more work to do. Kill the scanning threads and leave.
 				hdb.mu.Unlock()
 				break
 			}
@@ -71,14 +70,21 @@ func (hdb *HostDB) queueScan(entry modules.HostDBEntry) {
 				entry = recentEntry
 			}
 
-			// Create new worker thread. newPool allows us to ignore
-			// maxScanningThreads once as explained in the comment above.
+			// Check if a worker is ready to accept a new scanning job
+			select {
+			case scanPool <- entry:
+				hdb.mu.Unlock()
+				continue
+			default:
+			}
+
+			// Create new worker thread if work wasn't accepted immediately.
 			if hdb.scanningThreads < maxScanningThreads {
 				err := hdb.tg.Add()
 				if err != nil {
 					// Hostdb is shutting down
 					hdb.mu.Unlock()
-					break
+					return
 				}
 				// Spin up scanning thread
 				hdb.scanningThreads++
@@ -86,10 +92,9 @@ func (hdb *HostDB) queueScan(entry modules.HostDBEntry) {
 					hdb.threadedProbeHosts(scanPool)
 					hdb.mu.Lock()
 					hdb.scanningThreads--
-					if !threadsDoneClosed && hdb.scanningThreads < maxScanningThreads {
-						close(threadsDone)
-						threadsDoneClosed = true
-					}
+					// There is at least room for 1 new scanning thread now.
+					// Signal the world that a new thread can be started.
+					hdb.scanWait = false
 					hdb.mu.Unlock()
 					hdb.tg.Done()
 				}()
@@ -103,19 +108,9 @@ func (hdb *HostDB) queueScan(entry modules.HostDBEntry) {
 				// iterate again
 			case <-hdb.tg.StopChan():
 				// quit
-				break
+				return
 			}
 		}
-		// When we exit the goroutine we need to wait for spawned scanning
-		// routines to avoid deadlocks.
-		close(scanPool)
-		select {
-		case <-threadsDone:
-		}
-		// Let the world now that nobody is emptying the scanList anymore.
-		hdb.mu.Lock()
-		hdb.scanWait = false
-		hdb.mu.Unlock()
 	}()
 }
 
