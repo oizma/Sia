@@ -16,7 +16,7 @@ const (
 	historicInteractionDecayLimit = 500
 
 	// hostRequestTimeout indicates how long a host has to respond to a dial.
-	hostRequestTimeout = time.Second * 30
+	hostRequestTimeout = time.Minute * 2
 
 	// hostScanDeadline indicates how long a host has to complete an entire
 	// scan.
@@ -60,7 +60,7 @@ var (
 	// scanningThreads is the number of threads that will be probing hosts for
 	// their settings and checking for reliability.
 	maxScanningThreads = build.Select(build.Var{
-		Standard: int(250),
+		Standard: int(50),
 		Dev:      int(4),
 		Testing:  int(3),
 	}).(int)
