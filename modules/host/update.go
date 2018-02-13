@@ -11,7 +11,7 @@ import (
 	"github.com/NebulousLabs/Sia/modules"
 	"github.com/NebulousLabs/Sia/types"
 
-	"github.com/NebulousLabs/bolt"
+	"github.com/coreos/bolt"
 )
 
 // initRescan is a helper function of initConsensusSubscribe, and is called when

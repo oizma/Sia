@@ -8,7 +8,7 @@ import (
 	"github.com/NebulousLabs/Sia/build"
 	"github.com/NebulousLabs/Sia/modules"
 
-	"github.com/NebulousLabs/bolt"
+	"github.com/coreos/bolt"
 )
 
 // TestDBOpen tests the wallet.openDB method.

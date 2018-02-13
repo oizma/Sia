@@ -4,14 +4,13 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/NebulousLabs/Sia/build"
 	"github.com/NebulousLabs/Sia/modules"
 	"github.com/NebulousLabs/Sia/types"
 
-	"github.com/NebulousLabs/bolt"
+	"github.com/coreos/bolt"
 )
 
 var (
@@ -284,15 +283,9 @@ func (cs *ConsensusSet) managedAcceptBlocks(blocks []types.Block) (blockchainExt
 				panic("after adding a change entry, there are no applied blocks but there are reverted blocks")
 			}
 		}
-		// Flush DB pages
-		return tx.FlushDBPages()
+		return nil
 	})
 	cs.log.Printf("accept: finished block processing loop")
-	if _, ok := setErr.(bolt.MmapError); ok {
-		cs.log.Println("ERROR: Bolt mmap failed:", setErr)
-		fmt.Println("Blockchain database has run out of disk space!")
-		os.Exit(1)
-	}
 	if setErr != nil {
 		if len(changes) == 0 {
 			fmt.Println("Received an invalid block set.")

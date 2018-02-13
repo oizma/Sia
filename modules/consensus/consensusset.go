@@ -15,7 +15,7 @@ import (
 	"github.com/NebulousLabs/Sia/sync"
 	"github.com/NebulousLabs/Sia/types"
 
-	"github.com/NebulousLabs/bolt"
+	"github.com/coreos/bolt"
 	"github.com/NebulousLabs/demotemutex"
 )
 

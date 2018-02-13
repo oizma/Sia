@@ -9,7 +9,7 @@ import (
 	"github.com/NebulousLabs/Sia/persist"
 	"github.com/NebulousLabs/Sia/types"
 
-	"github.com/NebulousLabs/bolt"
+	"github.com/coreos/bolt"
 )
 
 var explorerMetadata = persist.Metadata{

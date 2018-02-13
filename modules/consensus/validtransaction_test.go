@@ -8,7 +8,7 @@ import (
 	"github.com/NebulousLabs/Sia/types"
 	"github.com/NebulousLabs/fastrand"
 
-	"github.com/NebulousLabs/bolt"
+	"github.com/coreos/bolt"
 )
 
 // TestTryValidTransactionSet submits a valid transaction set to the
